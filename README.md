@@ -1,3 +1,13 @@
+# FST
+
+It's fork of OpenFst project.
+Why?
+1. Make it allocator aware
+2. Add CMake support, but drop bazel and make, because we don't need them
+3. Drop script support
+4. Some other improvements
+
+```
 OpenFst is a library for constructing, combining, optimizing, and searching
 weighted finite-state transducers (FSTs).
 
@@ -81,3 +91,4 @@ BUILDING WITH BAZEL:
 DOCUMENTATION:
   See www.openfst.org for general documentation.
   See ./NEWS for updates since the last release.
+```
