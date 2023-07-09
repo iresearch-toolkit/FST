@@ -28,6 +28,7 @@
 #include <istream>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -39,6 +40,20 @@
 
 
 namespace fst {
+namespace detail {
+
+template<typename T>
+std::enable_if_t<!std::is_void_v<decltype(std::declval<T>().GetStateAlloc())>,
+                 std::true_type>
+HasAllocImpl(int);
+
+template<typename>
+std::false_type HasAllocImpl(...);
+
+template<typename T>
+struct HasAlloc : decltype(HasAllocImpl<T>(0)) {};
+
+}  // namespace
 
 template <class Arc>
 struct MutableArcIteratorData;
@@ -342,7 +357,12 @@ class ImplToMutableFst : public ImplToExpandedFst<Impl, FST> {
     if (!Unique()) {
       const auto *isymbols = GetImpl()->InputSymbols();
       const auto *osymbols = GetImpl()->OutputSymbols();
-      SetImpl(std::make_shared<Impl>());
+      if constexpr (detail::HasAlloc<Impl>::value) {
+        SetImpl(std::make_shared<Impl>(GetImpl()->GetStateAlloc(),
+                                       GetImpl()->GetArcAlloc()));
+      } else {
+        SetImpl(std::make_shared<Impl>());
+      }
       GetMutableImpl()->SetInputSymbols(isymbols);
       GetMutableImpl()->SetOutputSymbols(osymbols);
     } else {
@@ -412,7 +432,14 @@ class ImplToMutableFst : public ImplToExpandedFst<Impl, FST> {
       : ImplToExpandedFst<Impl, FST>(fst, safe) {}
 
   void MutateCheck() {
-    if (!Unique()) SetImpl(std::make_shared<Impl>(*this));
+    if (!Unique()) {
+      if constexpr (detail::HasAlloc<Impl>::value) {
+        SetImpl(std::make_shared<Impl>(*this, GetImpl()->GetStateAlloc(),
+                                       GetImpl()->GetArcAlloc()));
+      } else {
+        SetImpl(std::make_shared<Impl>(*this));
+      }
+    }
   }
 };
 

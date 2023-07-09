@@ -173,7 +173,9 @@ class VectorFstBaseImpl : public FstImpl<typename S::Arc> {
   using StateId = typename Arc::StateId;
   using Weight = typename Arc::Weight;
 
-  VectorFstBaseImpl() : start_(kNoStateId) {}
+  VectorFstBaseImpl(const typename State::StateAllocator &state_alloc = {},
+                    const typename State::ArcAllocator &arc_alloc = {})
+      : start_(kNoStateId), state_alloc_(state_alloc), arc_alloc_(arc_alloc) {}
 
   ~VectorFstBaseImpl() override {
     for (auto *state : states_) State::Destroy(state, &state_alloc_);
@@ -187,7 +189,9 @@ class VectorFstBaseImpl : public FstImpl<typename S::Arc> {
   VectorFstBaseImpl(VectorFstBaseImpl &&impl) noexcept
       : FstImpl<typename S::Arc>(),
         states_(std::move(impl.states_)),
-        start_(impl.start_) {
+        start_(impl.start_),
+        state_alloc_(impl.state_alloc_),
+        arc_alloc_(impl.arc_alloc_) {
     impl.states_.clear();
     impl.start_ = kNoStateId;
   }
@@ -327,6 +331,14 @@ class VectorFstBaseImpl : public FstImpl<typename S::Arc> {
     data->ref_count = nullptr;
   }
 
+  const typename State::StateAllocator &GetStateAlloc() const noexcept {
+    return state_alloc_;
+  }
+
+  const typename State::ArcAllocator &GetArcAlloc() const noexcept {
+    return arc_alloc_;
+  }
+
  private:
   State *CreateState() { return new (&state_alloc_) State(arc_alloc_); }
 
@@ -362,14 +374,21 @@ class VectorFstImpl : public VectorFstBaseImpl<S> {
 
   using BaseImpl = VectorFstBaseImpl<S>;
 
-  VectorFstImpl() {
+  VectorFstImpl(const typename State::StateAllocator &state_alloc = {},
+                const typename State::ArcAllocator &arc_alloc = {})
+      : BaseImpl(state_alloc, arc_alloc) {
     SetType("vector");
     SetProperties(kNullProperties | kStaticProperties);
   }
 
-  explicit VectorFstImpl(const Fst<Arc> &fst);
+  explicit VectorFstImpl(const Fst<Arc> &fst,
+                         const typename State::StateAllocator &state_alloc = {},
+                         const typename State::ArcAllocator &arc_alloc = {});
 
-  static VectorFstImpl *Read(std::istream &strm, const FstReadOptions &opts);
+  static VectorFstImpl *
+  Read(std::istream &strm, const FstReadOptions &opts,
+       const typename State::StateAllocator &state_alloc = {},
+       const typename State::ArcAllocator &arc_alloc = {});
 
   void SetStart(StateId state) {
     BaseImpl::SetStart(state);
@@ -451,7 +470,10 @@ class VectorFstImpl : public VectorFstBaseImpl<S> {
 };
 
 template <class S>
-VectorFstImpl<S>::VectorFstImpl(const Fst<Arc> &fst) {
+VectorFstImpl<S>::VectorFstImpl(
+    const Fst<Arc> &fst, const typename State::StateAllocator &state_alloc,
+    const typename State::ArcAllocator &arc_alloc)
+    : BaseImpl(state_alloc, arc_alloc) {
   SetType("vector");
   SetInputSymbols(fst.InputSymbols());
   SetOutputSymbols(fst.OutputSymbols());
@@ -473,9 +495,11 @@ VectorFstImpl<S>::VectorFstImpl(const Fst<Arc> &fst) {
 }
 
 template <class S>
-VectorFstImpl<S> *VectorFstImpl<S>::Read(std::istream &strm,
-                                         const FstReadOptions &opts) {
-  auto impl = std::make_unique<VectorFstImpl>();
+VectorFstImpl<S> *
+VectorFstImpl<S>::Read(std::istream &strm, const FstReadOptions &opts,
+                       const typename State::StateAllocator &state_alloc,
+                       const typename State::ArcAllocator &arc_alloc) {
+  auto impl = std::make_unique<VectorFstImpl>(state_alloc, arc_alloc);
   FstHeader hdr;
   if (!impl->ReadHeader(strm, opts, kMinFileVersion, &hdr)) return nullptr;
   impl->BaseImpl::SetStart(hdr.Start());
@@ -538,10 +562,16 @@ class VectorFst : public ImplToMutableFst<internal::VectorFstImpl<S>> {
   template <class F, class G>
   friend void Cast(const F &, G *);
 
-  VectorFst() : ImplToMutableFst<Impl>(std::make_shared<Impl>()) {}
+  VectorFst(const typename State::StateAllocator &state_alloc = {},
+            const typename State::ArcAllocator &arc_alloc = {})
+      : ImplToMutableFst<Impl>(std::make_shared<Impl>(state_alloc, arc_alloc)) {
+  }
 
-  explicit VectorFst(const Fst<Arc> &fst)
-      : ImplToMutableFst<Impl>(std::make_shared<Impl>(fst)) {}
+  explicit VectorFst(const Fst<Arc> &fst,
+                     const typename State::StateAllocator &state_alloc = {},
+                     const typename State::ArcAllocator &arc_alloc = {})
+      : ImplToMutableFst<Impl>(
+            std::make_shared<Impl>(fst, state_alloc, arc_alloc)) {}
 
   VectorFst(const VectorFst &fst, bool unused_safe = false)
       : ImplToMutableFst<Impl>(fst.GetSharedImpl()) {}
@@ -558,7 +588,9 @@ class VectorFst : public ImplToMutableFst<internal::VectorFstImpl<S>> {
   VectorFst &operator=(VectorFst &&) noexcept;
 
   VectorFst &operator=(const Fst<Arc> &fst) override {
-    if (this != &fst) SetImpl(std::make_shared<Impl>(fst));
+    if (this != &fst)
+      SetImpl(std::make_shared<Impl>(fst, GetImpl()->GetStateAlloc(),
+                                     GetImpl()->GetArcAlloc()));
     return *this;
   }
 
@@ -569,8 +601,10 @@ class VectorFst : public ImplToMutableFst<internal::VectorFstImpl<S>> {
   }
 
   // Reads a VectorFst from an input stream, returning nullptr on error.
-  static VectorFst *Read(std::istream &strm, const FstReadOptions &opts) {
-    auto *impl = Impl::Read(strm, opts);
+  static VectorFst *Read(std::istream &strm, const FstReadOptions &opts,
+                         const typename State::StateAllocator &state_alloc = {},
+                         const typename State::ArcAllocator &arc_alloc = {}) {
+    auto *impl = Impl::Read(strm, opts, state_alloc, arc_alloc);
     return impl ? new VectorFst(std::shared_ptr<Impl>(impl)) : nullptr;
   }
 
@@ -606,9 +640,9 @@ class VectorFst : public ImplToMutableFst<internal::VectorFstImpl<S>> {
 
   using ImplToMutableFst<Impl, MutableFst<Arc>>::ReserveArcs;
   using ImplToMutableFst<Impl, MutableFst<Arc>>::ReserveStates;
+  using ImplToMutableFst<Impl, MutableFst<Arc>>::GetImpl;
 
  private:
-  using ImplToMutableFst<Impl, MutableFst<Arc>>::GetImpl;
   using ImplToMutableFst<Impl, MutableFst<Arc>>::GetMutableImpl;
   using ImplToMutableFst<Impl, MutableFst<Arc>>::MutateCheck;
   using ImplToMutableFst<Impl, MutableFst<Arc>>::SetImpl;
