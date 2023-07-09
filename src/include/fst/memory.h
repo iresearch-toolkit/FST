@@ -237,11 +237,11 @@ class BlockAllocator {
   explicit BlockAllocator(const BlockAllocator<U> &arena_alloc)
       : arenas_(arena_alloc.Arenas()) {}
 
-  T *allocate(size_type n, const void *hint = nullptr) {
+  T *allocate(size_type n) {
     if (n * kAllocFit <= kAllocSize) {
       return static_cast<T *>(Arena()->Allocate(n));
     } else {
-      return Allocator().allocate(n, hint);
+      return Allocator().allocate(n);
     }
   }
 
@@ -291,7 +291,7 @@ class PoolAllocator {
   explicit PoolAllocator(const PoolAllocator<U> &pool_alloc)
       : pools_(pool_alloc.Pools()) {}
 
-  T *allocate(size_type n, const void *hint = nullptr) {
+  T *allocate(size_type n) {
     if (n == 1) {
       return static_cast<T *>(Pool<1>()->Allocate());
     } else if (n == 2) {
@@ -307,7 +307,7 @@ class PoolAllocator {
     } else if (n <= 64) {
       return static_cast<T *>(Pool<64>()->Allocate());
     } else {
-      return Allocator().allocate(n, hint);
+      return Allocator().allocate(n);
     }
   }
 
